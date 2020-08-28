@@ -1,0 +1,28 @@
+name: Build
+
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build dump
+      run: |
+        cd dump
+        ${ANDROID_SDK_ROOT}/ndk-bundle/ndk-build NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=Android.mk NDK_APPLICATION_MK=Application.mk
+    - name: Build MemDumper
+      run: |
+        cd MemDumper
+        ${ANDROID_SDK_ROOT}/ndk-bundle/ndk-build NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=Android.mk NDK_APPLICATION_MK=Application.mk
+    - uses: actions/upload-artifact@v2
+      name: Upload dump
+      with:
+        name: dump
+        path: dump/libs
+    - uses: actions/upload-artifact@v2
+      name: Upload MemDumper
+      with:
+        name: MemDumper
+        path: MemDumper/libs
