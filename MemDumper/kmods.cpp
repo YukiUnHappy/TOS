@@ -264,12 +264,12 @@ int main(int argc, char *argv[]) {
             if (isFastDump) {
                 uint8_t *buffer = new uint8_t[seg_size];
                 memset(buffer, '\0', seg_size);
-                vm_readv((void *) startAddr, buffer, seg_size);
+                vm_readv((void *) start_addr, buffer, seg_size);
                 sdump.write((char *) buffer, seg_size);
             } else {
                 char *buffer = new char[1];
                 while (seg_size != 0) {
-                    vm_readv((void *) (startAddr++), buffer, 1);
+                    vm_readv((void *) (start_addr++), buffer, 1);
                     sdump.write(buffer, 1);
                     --seg_size;
                 }
