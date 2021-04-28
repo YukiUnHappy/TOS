@@ -1,42 +1,29 @@
-#include <cstdio>
-#include <cstdlib>
-#include <cstddef>
-#include <ctime>
-#include <unistd.h>
-#include <string>
-#include <iostream>
-#include <iomanip>
-#include <fstream>
-#include <getopt.h>
-
-#include "Log.h"
-#include "Process.h"
-#include "Mem.h"
-
-#include "../dump/ElfFixSection/fix.h"
+#include "kmods.h"
 
 using namespace std;
 
-const char* short_options = "hlmrfp:o:n:s:e:";
+const char* short_options = "hlmrfi:p:o:n:s:e:";
 const struct option long_options[] = {
-		{"help", no_argument, NULL, 'h'},
-		{"lib", no_argument, NULL, 'l'},
-		{"manual", no_argument, NULL, 'm'},
-		{"raw", no_argument, NULL, 'r'},
-		{"fast", no_argument, NULL, 'f'},
-		{"package", required_argument, NULL, 'p'},
-		{"output", required_argument, NULL, 'o'},
-		{"name", required_argument, NULL, 'n'},
-		{"start", required_argument, NULL, 's'},
-		{"end", required_argument, NULL, 'e'},
-		{NULL, 0, NULL, 0}
+        {"help", no_argument, nullptr, 'h'},
+        {"lib", no_argument, nullptr, 'l'},
+        {"manual", no_argument, nullptr, 'm'},
+        {"raw", no_argument, nullptr, 'r'},
+        {"fast", no_argument, nullptr, 'f'},
+        {"pid", required_argument, nullptr, 'i'},
+        {"package", required_argument, nullptr, 'p'},
+        {"output", required_argument, nullptr, 'o'},
+        {"name", required_argument, nullptr, 'n'},
+        {"start", required_argument, nullptr, 's'},
+        {"end", required_argument, nullptr, 'e'},
+        {nullptr, 0, nullptr, 0}
 };
 
 void Usage() {
-	printf("MemDumper v0.4 <==> Made By KMODs(kp7742)\n");
-	printf("Usage: memdumper -p <packageName> <option(s)>\n");
+	printf("MemDumper v0.5 <==> Made By KMODs(kp7742)\n");
+	printf("Usage: ./memdumper -p <packageName> <option(s)>\n");
 	printf("Dump Memory Segment From Process Memory and Rebuild So(Elf) Libraries\n");
 	printf("-l for Library Mode, -m for Manual Dumping Mode, By Default Auto Dumping Mode\n");
+	printf("You can use either PID or Package Name, PID given priority over Package Name\n");
 	printf(" Options:\n");
 	printf("--Auto Dump Args-------------------------------------------------------------------------\n");
 	printf("  -n --name <segment_name>              Segment Name From proc maps\n");
@@ -51,35 +38,22 @@ void Usage() {
 	printf("  -r --raw(Optional)                    Output Raw Lib and Not Rebuild It\n");
 	printf("--Other Args----------------------------------------------------------------------------\n");
 	printf("  -f --fast(Optional)                   Enable Fast Dumping(May Miss Some Bytes in Dump)\n");
+	printf("  -i --pid <process-id>                 PID of Process\n");
 	printf("  -p --package <packageName>            Package Name of App\n");
 	printf("  -o --output <outputPath>              File Output path(Default: /sdcard)\n");
 	printf("  -h --help                             Display this information\n");
 }
 
 kaddr getHexAddr(const char* addr){
-    auto is16Bit = [](const char* c) {
-        auto len = strlen(c);
-        if(len > 2) {
-            if(c[0] == '0' & c[1] == 'x') return true;
-        }
-        bool is10bit = true;
-        for(auto i = 0; i < len; i++) {
-            if((c[i] > 'a' && c[i] < 'f') ||
-               (c[i] > 'A' && c[i] < 'F')) {
-                is10bit = false;
-            }
-        }
-        return !is10bit;
-    };
 #ifndef __SO64__
-    return (kaddr) strtoul(addr, nullptr, is16Bit(addr) ? 16: 10);
+    return (kaddr) strtoul(addr, nullptr, 16);
 #else
-    return (kaddr) strtoull(addr, nullptr, is16Bit(addr) ? 16: 10);
+    return (kaddr) strtoull(addr, nullptr, 16);
 #endif
 }
 
 int main(int argc, char *argv[]) {
-    int c;
+    int c, pid = -1;
     string pkg, name, outputpath("/sdcard");
     bool isValidArg = true, isManualDump = false, isLibDump = false, isFastDump = false, isRawDump = false;
     kaddr startAddr = 0, endAddr = 0;
@@ -97,6 +71,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'f':
                 isFastDump = true;
+                break;
+            case 'i':
+                pid = atoi(optarg);
                 break;
             case 'p':
                 pkg = optarg;
@@ -126,7 +103,7 @@ int main(int argc, char *argv[]) {
     }
 
     //Find PID
-    target_pid = find_pid(pkg.c_str());
+    target_pid = pid > 0 ? pid :find_pid(pkg.c_str());
     if (target_pid == -1) {
         cout << "Can't find the process" << endl;
         return -1;
@@ -146,7 +123,7 @@ int main(int argc, char *argv[]) {
         ofstream mdump(outputpath + "/" + name, ofstream::out | ofstream::binary);
         if (mdump.is_open()) {
             if (isFastDump) {
-                uint8_t *buffer = new uint8_t[dump_size];
+                auto *buffer = new uint8_t[dump_size];
                 memset(buffer, '\0', dump_size);
                 vm_readv((void *) startAddr, buffer, dump_size);
                 mdump.write((char *) buffer, dump_size);
@@ -189,7 +166,7 @@ int main(int argc, char *argv[]) {
             ofstream rdump(outputpath + "/" + name, ofstream::out | ofstream::binary);
             if (rdump.is_open()) {
                 if (isFastDump) {
-                    uint8_t *buffer = new uint8_t[libsize];
+                    auto *buffer = new uint8_t[libsize];
                     memset(buffer, '\0', libsize);
                     vm_readv((void *) start_addr, buffer, libsize);
                     rdump.write((char *) buffer, libsize);
@@ -212,7 +189,7 @@ int main(int argc, char *argv[]) {
             ofstream ldump(tempPath, ofstream::out | ofstream::binary);
             if (ldump.is_open()) {
                 if (isFastDump) {
-                    uint8_t *buffer = new uint8_t[libsize];
+                    auto *buffer = new uint8_t[libsize];
                     memset(buffer, '\0', libsize);
                     vm_readv((void *) start_addr, buffer, libsize);
                     ldump.write((char *) buffer, libsize);
@@ -232,9 +209,49 @@ int main(int argc, char *argv[]) {
 
             cout << "Rebuilding Elf(So)" << endl;
 
+#if defined(__LP64__)
             string outPath = outputpath + "/" + name;
-            fix_so(tempPath.c_str(), outPath.c_str(), start_addr);
 
+            fix_so(tempPath.c_str(), outPath.c_str(), start_addr);
+#else
+            //SoFixer Code//
+            ElfReader elf_reader;
+
+            elf_reader.setDumpSoFile(true);
+            elf_reader.setDumpSoBaseAddr(start_addr);
+
+            auto file = fopen(tempPath.c_str(), "rb");
+            if (nullptr == file) {
+                printf("source so file cannot found!!!\n");
+                return -1;
+            }
+            auto fd = fileno(file);
+
+            elf_reader.setSource(tempPath.c_str(), fd);
+
+            if (!elf_reader.Load()) {
+                printf("source so file is invalid\n");
+                return -1;
+            }
+
+            ElfRebuilder elf_rebuilder(&elf_reader);
+            if (!elf_rebuilder.Rebuild()) {
+                printf("error occured in rebuilding elf file\n");
+                return -1;
+            }
+            fclose(file);
+            //SoFixer Code//
+
+            ofstream redump(outputpath + "/" + name, ofstream::out | ofstream::binary);
+            if (redump.is_open()) {
+                redump.write((char*) elf_rebuilder.getRebuildData(), elf_rebuilder.getRebuildSize());
+            } else {
+                cout << "Can't Output File" << endl;
+                return -1;
+            }
+            redump.close();
+#endif
+            cout << "Rebuilding Complete" << endl;
             remove(tempPath.c_str());
         }
     } else {
@@ -262,7 +279,7 @@ int main(int argc, char *argv[]) {
         ofstream sdump(outputpath + "/" + name, ofstream::out | ofstream::binary);
         if (sdump.is_open()) {
             if (isFastDump) {
-                uint8_t *buffer = new uint8_t[seg_size];
+                auto *buffer = new uint8_t[seg_size];
                 memset(buffer, '\0', seg_size);
                 vm_readv((void *) start_addr, buffer, seg_size);
                 sdump.write((char *) buffer, seg_size);
